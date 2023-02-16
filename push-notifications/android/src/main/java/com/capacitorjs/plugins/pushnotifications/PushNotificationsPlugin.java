@@ -2,6 +2,7 @@ package com.capacitorjs.plugins.pushnotifications;
 
 import android.app.Notification;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -10,6 +11,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
+import android.util.Log;
+
 import androidx.core.app.NotificationCompat;
 import com.getcapacitor.*;
 import com.getcapacitor.annotation.CapacitorPlugin;
@@ -19,6 +22,8 @@ import com.google.firebase.messaging.RemoteMessage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -50,7 +55,10 @@ public class PushNotificationsPlugin extends Plugin {
     @Override
     protected void handleOnNewIntent(Intent data) {
         super.handleOnNewIntent(data);
+        Log.d("SERVICE", "Plugin intent launched :)");
         Bundle bundle = data.getExtras();
+
+
         if (bundle != null && bundle.containsKey("google.message_id")) {
             JSObject notificationJson = new JSObject();
             JSObject dataObject = new JSObject();
@@ -64,11 +72,15 @@ public class PushNotificationsPlugin extends Plugin {
                 }
             }
             notificationJson.put("data", dataObject);
-            JSObject actionJson = new JSObject();
-            actionJson.put("actionId", "tap");
-            actionJson.put("notification", notificationJson);
-            notifyListeners("pushNotificationActionPerformed", actionJson, true);
+            sendPushNotificationPerformed(notificationJson);
         }
+    }
+
+    public void sendPushNotificationPerformed(JSObject notificationJson) {
+        JSObject actionJson = new JSObject();
+        actionJson.put("actionId", "tap");
+        actionJson.put("notification", notificationJson);
+        notifyListeners("pushNotificationActionPerformed", actionJson, true);
     }
 
     @PluginMethod
@@ -234,6 +246,21 @@ public class PushNotificationsPlugin extends Plugin {
                     if (bundle != null && bundle.getInt("com.google.firebase.messaging.default_notification_icon") != 0) {
                         pushIcon = bundle.getInt("com.google.firebase.messaging.default_notification_icon");
                     }
+
+                    Intent notifyIntent = new Intent(this.getContext(), LocalNotificationHandlerService.class);
+                    notifyIntent.putExtra("id", remoteMessage.getMessageId());
+
+                    Bundle intentBundle = new Bundle();
+                    for (Map.Entry<String, String> entry: remoteMessage.getData().entrySet()) {
+                        intentBundle.putString(entry.getKey(), entry.getValue());
+                    }
+                    notifyIntent.putExtra("data", intentBundle);
+
+                    PendingIntent notifyPendingIntent = PendingIntent.getService(this.getContext(), 0, notifyIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+//                    Intent pluginIntent = new Intent(this.getContext(), this.getClass());
+//                    PendingIntent pluginPendingIntent = PendingIntent.getService(this.getContext(), 0, pluginIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
                     NotificationCompat.Builder builder = new NotificationCompat.Builder(
                         getContext(),
                         NotificationChannelManager.FOREGROUND_NOTIFICATION_CHANNEL_ID
@@ -241,6 +268,7 @@ public class PushNotificationsPlugin extends Plugin {
                         .setSmallIcon(pushIcon)
                         .setContentTitle(title)
                         .setContentText(body)
+                        .setContentIntent(notifyPendingIntent)
                         .setPriority(NotificationCompat.PRIORITY_DEFAULT);
                     notificationManager.notify(0, builder.build());
                 }
